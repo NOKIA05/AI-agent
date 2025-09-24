@@ -1,0 +1,193 @@
+<script>
+console.log('Chat page loaded');
+
+const socket = io();
+let sessionId = null;
+let connected = false;
+
+// Connect to server
+socket.on('connect', () => {
+    console.log('Connected to server');
+    connected = true;
+});
+
+socket.on('connected', (data) => {
+    sessionId = data.session_id;
+    console.log('Connected with session:', sessionId);
+});
+
+socket.on('disconnect', () => {
+    console.log('Disconnected from server');
+    connected = false;
+});
+
+// Handle messages
+const messagesContainer = document.getElementById('chat-messages');
+const messageInput = document.getElementById('message-input');
+const sendButton = document.getElementById('send-button');
+const typingIndicator = document.getElementById('typing-indicator');
+
+function scrollToBottom() {
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function addMessage(content, isUser = false, timestamp = null, isError = false) {
+    console.log('Adding message:', { content, isUser, timestamp, isError });
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'flex items-start space-x-3';
+    
+    if (isUser) {
+        messageDiv.className += ' flex-row-reverse space-x-reverse';
+    }
+    
+    const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+    const bgColor = isError ? 'bg-red-50' : (isUser ? 'bg-green-50' : 'bg-blue-50');
+    const iconColor = isError ? 'bg-red-600' : (isUser ? 'bg-green-600' : 'bg-blue-600');
+    
+    // Handle different content types
+    let displayContent;
+    if (typeof content === 'object') {
+        // If it's an object, convert to readable string
+        displayContent = JSON.stringify(content, null, 2);
+        console.warn('Received object content:', content);
+    } else if (typeof content === 'string') {
+        displayContent = escapeHtml(content);
+    } else {
+        displayContent = String(content);
+    }
+    
+    messageDiv.innerHTML = `
+        <div class="${iconColor} rounded-full p-2 text-white">
+            <i class="fas fa-${isUser ? 'user' : (isError ? 'exclamation-triangle' : 'robot')}"></i>
+        </div>
+        <div class="${bgColor} rounded-lg p-3 max-w-2xl">
+            <p class="text-gray-800 whitespace-pre-wrap">${displayContent}</p>
+            <p class="text-xs text-gray-500 mt-1">${time}</p>
+        </div>
+    `;
+    
+    messagesContainer.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+function sendMessage() {
+    const message = messageInput.value.trim();
+    if (!message || !connected) {
+        if (!connected) {
+            addMessage('Not connected to server. Please refresh the page.', false, null, true);
+        }
+        return;
+    }
+    
+    console.log('Sending message:', message);
+    socket.emit('send_message', { message: message });
+    messageInput.value = '';
+    sendButton.disabled = true;
+}
+
+// Event listeners
+sendButton.addEventListener('click', sendMessage);
+messageInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+
+// Quick prompts
+document.querySelectorAll('.quick-prompt').forEach(button => {
+    button.addEventListener('click', () => {
+        messageInput.value = button.dataset.prompt;
+        sendMessage();
+    });
+});
+
+// Clear chat
+document.getElementById('clear-chat').addEventListener('click', () => {
+    if (confirm('Clear chat history?')) {
+        const welcomeMessage = `
+            <div class="flex items-start space-x-3">
+                <div class="bg-blue-600 rounded-full p-2 text-white">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div class="bg-blue-50 rounded-lg p-3 max-w-md">
+                    <p class="text-gray-800">Chat cleared! How can I help you with your research?</p>
+                </div>
+            </div>
+        `;
+        messagesContainer.innerHTML = welcomeMessage;
+    }
+});
+
+// Show stats
+document.getElementById('show-stats').addEventListener('click', () => {
+    fetch('/api/learning-stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.data);
+            } else {
+                alert('Error loading stats: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+});
+
+// Socket events - FIXED VERSION
+socket.on('user_message', (data) => {
+    console.log('Received user_message:', data);
+    // Extract the actual message text
+    const messageText = typeof data === 'object' ? (data.message || data.content || JSON.stringify(data)) : data;
+    addMessage(messageText, true, data.timestamp);
+});
+
+socket.on('ai_response', (data) => {
+    console.log('Received ai_response:', data);
+    // Extract the actual message text - this is the key fix!
+    let messageText;
+    if (typeof data === 'object') {
+        messageText = data.message || data.content || data.text || JSON.stringify(data);
+    } else {
+        messageText = data;
+    }
+    
+    addMessage(messageText, false, data.timestamp, data.error || false);
+    sendButton.disabled = false;
+});
+
+socket.on('typing', (data) => {
+    console.log('Typing status:', data);
+    if (data.typing) {
+        typingIndicator.classList.remove('hidden');
+    } else {
+        typingIndicator.classList.add('hidden');
+    }
+    scrollToBottom();
+});
+
+socket.on('error', (data) => {
+    console.log('Received error:', data);
+    const errorText = typeof data === 'object' ? (data.message || JSON.stringify(data)) : data;
+    addMessage('Error: ' + errorText, false, null, true);
+    sendButton.disabled = false;
+});
+
+// Connection status monitoring
+setInterval(() => {
+    if (!connected) {
+        console.log('Attempting to reconnect...');
+        socket.connect();
+    }
+}, 5000);
+
+console.log('Chat JavaScript loaded successfully');
+</script>

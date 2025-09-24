@@ -1,0 +1,17 @@
+langchain
+wikipedia
+langchain-community
+langchain-openai
+langchain-anthropic
+python-dotenv
+pydantic
+duckduckgo-search
+requests
+beautifulsoup4
+sqLite3
+json
+pickle
+scikit-learn
+numpy
+flask
+flask-socketio
